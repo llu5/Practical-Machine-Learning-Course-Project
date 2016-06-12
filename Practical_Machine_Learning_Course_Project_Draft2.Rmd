@@ -1,0 +1,264 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Li Lu"
+date: "June 11, 2016"
+output: html_document
+---
+
+## Introduction
+This project is an evaluation on quality of exercise in a study of manner of exercising in six participants with data obtained from accelerometer. The results in the training set are labeled in five difference classes.
+The goal of the study is to predict the quality of exericse as categorized in the training set.
+There are five requirements for this assignment:
+
+According to the instruction, I have to create a report describing:
+(1) how to build your model;
+(2) how you used cross validation;
+(3) what you think the expected out of sample error is;
+(4) why you made the choices you did. 
+(5) You will also use your prediction model to predict 20 different test cases.
+
+## Summary of approaches
+To address above requirements, in the following sections, I will start the project by  downloadomg data, clean the training data, select most important features and eleminate those mostly are N/A values,  Then I will split the training data into training set and validation set for cross validation. Then I will start building a seriese of different  models such as random forest model, predict with decision trees and see which will produce acceptable performance and estimate out-of-sample error by showing confusion matrix. This will be the reason why I choose these models in the project.  I will make plots if necessary to show the results. Finally I will predict 20 different test cases for submission. 
+
+## Data Sources
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project comes from this original source: http://groupware.les.inf.puc-rio.br/har.
+
+## Downloading, getting data files  and creating data sets
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(knitr)
+library(RCurl)
+
+#downloading training dataset
+
+URLtrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+trainfile <- getURL(URLtrain)
+dsTrain<-read.csv(text=trainfile)
+
+#downloading testing dataset
+URLtest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testfile <- getURL(URLtest)
+dsTest<-read.csv(text=testfile)
+```
+
+Splitting training set into two partitions
+```{r}
+URLtrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+trainfile <- getURL(URLtrain)
+dsTrain<-read.csv(text=trainfile)
+
+inTrain <- createDataPartition(dsTrain$classe, p=0.75, list=FALSE)
+myTraining <- dsTrain[inTrain, ]
+myTesting <- dsTrain[-inTrain, ]
+dim(myTraining); dim(myTesting)
+```
+
+## Removal of variables near zero values from data 
+Since near zero variance predictors column which will make the model to be unstable and they are to be eliminated. The results of reduced number in columns are shown. 
+
+```{r}
+nzv<- nearZeroVar(myTraining, saveMetrics=TRUE)
+
+myTraining <- myTraining[,nzv$nzv==FALSE]
+
+nzv <- nearZeroVar(myTesting, saveMetrics=TRUE)
+
+myTesting <- myTesting[,nzv$nzv==FALSE]
+
+dim(myTraining); dim(myTesting)
+
+```
+
+Removal of first column for possible interferrence of ID to the prediction
+
+```{r}
+myTraining <- myTraining[c(-1)]
+
+```
+
+
+Clean variables with  equal to or more than 70% NA
+```{r}
+trainingNA70 <- myTraining
+for(i in 1:length(myTraining)) {
+  if( sum( is.na( myTraining[, i] ) ) /nrow(myTraining) >= .7) {
+    for(j in 1:length(trainingNA70)) {
+      if( length( grep(names(myTraining[i]), names(trainingNA70)[j]) ) == 1)  {
+        trainingNA70 <- trainingNA70[ , -j]
+      }   
+    } 
+  }
+}
+
+#  set columns to original variable name 
+myTraining <- trainingNA70 
+rm(trainingNA70)
+dim(myTraining)
+```
+
+Transform the myTesting and creating a test set by removing outcome variable, "classe"
+
+```{r}
+clean_t <- colnames(myTraining)
+clean_n <- colnames(myTraining[, -58])  # remove the classe column
+myTesting <- myTesting[clean_t]         # limit variable names in myTesting that are same as in myTraining
+
+dsTest <- dsTest[clean_n]             # limit variable names in testing that are same as in myTraining
+
+
+dim(myTesting)
+dim(dsTest)
+```
+
+To ensure the prediction can be reproducible in testing, coerce both training data and testing datainto the same type
+```{r}
+for (i in 1:length(dsTest) ) {
+  for(j in 1:length(myTraining)) {
+    if( length( grep(names(myTraining[i]), names(dsTest)[j]) ) == 1)  {
+      class(dsTest[j]) <- class(myTraining[i])
+    }      
+  }      
+}
+# To combine rows between testing and myTraining
+dsTest <- rbind(myTraining[2, -58] , dsTest)
+
+
+```
+
+## Decision tree model is selected  for prediction
+```{r}
+set.seed(12345)
+modFitCDT1 <- rpart(classe ~ ., data=myTraining, method="class")
+fancyRpartPlot(modFitCDT1)
+```
+
+
+
+## Predicting with myTesting probing dataset:
+```{r}
+predictionsA1 <- predict(modFitCDT1, myTesting, type = "class")
+```
+
+Evaluate the result by using Confusion Matrix
+```{r}
+confusionMatrix(predictionsA1, myTesting$classe)
+```
+
+## Prediction with an alternative algorithem: Random Forests 
+
+```{r}
+modFitRFB1 <- randomForest(classe ~. , data=myTraining)
+```
+
+#Predicting in-sample error:
+```{r}
+  predictionsRFB1 <- predict(modFitRFB1, myTesting, type = "class")
+```
+
+Evaluate the result by using Confusion Matrix 
+```{r}
+  confusionMatrix(predictionsRFB1, myTesting$classe)
+```
+Note: Since the accuracy of random forest is better than decision tree and it is picked for prediction of more datasets.
+
+##  Re-training the best performed model by using full-size training set
+So far, only a portion of training set is trained by decision tree and random forest algorithms. Before the finally picked model is used for testing dataset, it must be retrained by using complete training set for hest accuracy in prediction. In the following, above process is repeated by using full training set : dsTrain
+
+
+Removal of variables near zero values from data 
+```{r}
+nzv<- nearZeroVar(dsTrain, saveMetrics=TRUE)
+  
+dsTrain <- dsTrain[,nzv$nzv==FALSE]
+```
+
+Removal of first column for possible interferrence of ID to the prediction
+
+```{r}
+dsTrain <- dsTrain[c(-1)]
+
+```
+
+Clean variables with  equal to or more than 70% NA
+```{r}
+trainingNA70 <- dsTrain
+for(i in 1:length(dsTrain)) {
+  if( sum( is.na( dsTrain[, i] ) ) /nrow(dsTrain) >= .7) {
+    for(j in 1:length(trainingNA70)) {
+      if( length( grep(names(dsTrain[i]), names(trainingNA70)[j]) ) == 1)  {
+        trainingNA70 <- trainingNA70[ , -j]
+      }   
+    } 
+  }
+}
+
+#  set columns to original variable name 
+dsTrain <- trainingNA70 
+rm(trainingNA70)
+dim(dsTrain)
+```
+
+
+## Prediction with an  algorithem: Random Forests again on full training set
+
+```{r}
+modFitRFBfull <- randomForest(classe ~. , data=dsTrain)
+```
+
+
+Create a plot
+```{r}
+  plot(modFitRFBfull)
+```
+
+Retrain the model
+```{r}
+
+  predictionsRFfull <- predict(modFitRFBfull, myTesting, type = "class")
+    
+```
+  
+Estimate the result by using confusionMatrix
+```{r}
+  confusionMatrix(predictionsRFfull, myTesting$classe)
+```
+
+
+## Prediction with Random forest on test data
+Random Forests produced ccuracy in the myTesting dataset of 99.99%, which was more accurate that what I got from the Decision Trees. Therefore, it is selected for use in prediction of test data.
+
+```{r}
+  predictionsRFdsTest <- predict(modFitRFBfull, dsTest, type = "class")
+  predictionsRFdsTest
+  
+  # Write the results to a text file for submission
+  pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+      filename = paste0("problem_id_",i,".txt")
+      write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+  }
+  
+   #pml_write_files(predictionsRFdsTest)
+
+```
+
+## Reference
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6. 
+
+Read more: http://groupware.les.inf.puc-rio.br/har#sbia_paper_section#ixzz4BHMliVa5
